@@ -12,6 +12,7 @@ pmzf::pubmed::SummaryItem make_summary_item()
     item.journal = "Example Journal";
     item.pubdate = "2026";
     item.doi = "10.0000/example";
+    item.abstract_text = "This is an example abstract.";
     item.authors = {"A Author", "B Author"};
     item.url = "https://pubmed.ncbi.nlm.nih.gov/12345/";
     return item;
@@ -38,7 +39,7 @@ void maps_summary_to_document()
     PMZF_CHECK(document.metadata.url == "https://pubmed.ncbi.nlm.nih.gov/12345/");
     PMZF_CHECK(document.metadata.authors.size() == 2);
     PMZF_CHECK(document.metadata.extra.at("pmid") == "12345");
-    PMZF_CHECK(!document.blocks.empty());
+    PMZF_CHECK(document.blocks.size() >= 8);
 }
 
 } // namespace

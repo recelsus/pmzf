@@ -31,10 +31,15 @@ Provider::search(const std::string& query)
 spagyrist::document
 Provider::fetch(const spagyrist::selection& selected)
 {
-    if (const auto found = item_cache_.find(selected.item.id); found != item_cache_.end()) {
-        return to_document(found->second);
+    auto item = client_->fetch(selected.item.id);
+    if (!item.title) {
+        if (const auto found = item_cache_.find(selected.item.id); found != item_cache_.end()) {
+            auto cached = found->second;
+            cached.abstract_text = item.abstract_text;
+            item = std::move(cached);
+        }
     }
-    return to_document(client_->fetch(selected.item.id));
+    return to_document(item);
 }
 
 std::unique_ptr<provider::Provider>

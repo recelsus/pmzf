@@ -22,6 +22,7 @@ struct SummaryItem {
     std::optional<std::string> journal;
     std::optional<std::string> pubdate;
     std::optional<std::string> doi;
+    std::optional<std::string> abstract_text;
     std::vector<std::string> authors;
     std::string url;
 };
@@ -53,6 +54,9 @@ private:
 
     [[nodiscard]] JsonValue
     esummary(const std::vector<std::string>& pmids) const;
+
+    [[nodiscard]] std::optional<std::string>
+    efetch_abstract(const std::string& pmid) const;
 
     [[nodiscard]] std::string
     build_url(

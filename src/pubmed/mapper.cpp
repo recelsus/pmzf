@@ -103,6 +103,10 @@ to_document(const SummaryItem& item)
         spagyrist::inline_element::strong({spagyrist::inline_element::text_node("PMID: ")}),
         spagyrist::inline_element::link(item.pmid, item.url),
     }));
+    document.blocks.push_back(spagyrist::block::paragraph({
+        spagyrist::inline_element::strong({spagyrist::inline_element::text_node("URL: ")}),
+        spagyrist::inline_element::link(item.url, item.url),
+    }));
     add_optional_paragraph(document, "Journal", item.journal);
     add_optional_paragraph(document, "Publication date", item.pubdate);
     add_optional_paragraph(document, "DOI", item.doi);
@@ -110,6 +114,14 @@ to_document(const SummaryItem& item)
         document.blocks.push_back(spagyrist::block::paragraph({
             spagyrist::inline_element::strong({spagyrist::inline_element::text_node("Authors: ")}),
             spagyrist::inline_element::text_node(join_authors(item.authors)),
+        }));
+    }
+    if (item.abstract_text && !item.abstract_text->empty()) {
+        document.blocks.push_back(spagyrist::block::heading(
+            2,
+            {spagyrist::inline_element::text_node("Abstract")}));
+        document.blocks.push_back(spagyrist::block::paragraph({
+            spagyrist::inline_element::text_node(*item.abstract_text),
         }));
     }
 

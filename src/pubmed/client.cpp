@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace pmzf::pubmed {
@@ -92,6 +93,155 @@ SummaryItem make_minimal_item(std::string pmid)
     return item;
 }
 
+std::string trim(std::string value)
+{
+    const auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    });
+    const auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    }).base();
+
+    if (begin >= end) {
+        return {};
+    }
+    return std::string(begin, end);
+}
+
+std::string decode_xml_entities(std::string_view text)
+{
+    std::string output;
+    output.reserve(text.size());
+
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != '&') {
+            output.push_back(text[i]);
+            continue;
+        }
+
+        const auto semicolon = text.find(';', i + 1);
+        if (semicolon == std::string_view::npos) {
+            output.push_back(text[i]);
+            continue;
+        }
+
+        const auto entity = text.substr(i, semicolon - i + 1);
+        if (entity == "&amp;") {
+            output.push_back('&');
+        } else if (entity == "&lt;") {
+            output.push_back('<');
+        } else if (entity == "&gt;") {
+            output.push_back('>');
+        } else if (entity == "&quot;") {
+            output.push_back('"');
+        } else if (entity == "&apos;") {
+            output.push_back('\'');
+        } else {
+            output.append(entity);
+        }
+        i = semicolon;
+    }
+
+    return output;
+}
+
+std::string strip_xml_tags(std::string_view text)
+{
+    std::string output;
+    output.reserve(text.size());
+    bool inside_tag = false;
+
+    for (const char ch : text) {
+        if (ch == '<') {
+            inside_tag = true;
+            continue;
+        }
+        if (ch == '>') {
+            inside_tag = false;
+            continue;
+        }
+        if (!inside_tag) {
+            output.push_back(ch);
+        }
+    }
+
+    return trim(decode_xml_entities(output));
+}
+
+std::optional<std::string> extract_attribute(std::string_view tag, std::string_view name)
+{
+    const auto name_pos = tag.find(name);
+    if (name_pos == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    auto pos = name_pos + name.size();
+    while (pos < tag.size() && std::isspace(static_cast<unsigned char>(tag[pos])) != 0) {
+        ++pos;
+    }
+    if (pos >= tag.size() || tag[pos] != '=') {
+        return std::nullopt;
+    }
+    ++pos;
+    while (pos < tag.size() && std::isspace(static_cast<unsigned char>(tag[pos])) != 0) {
+        ++pos;
+    }
+    if (pos >= tag.size() || (tag[pos] != '"' && tag[pos] != '\'')) {
+        return std::nullopt;
+    }
+
+    const char quote = tag[pos++];
+    const auto end = tag.find(quote, pos);
+    if (end == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return decode_xml_entities(tag.substr(pos, end - pos));
+}
+
+std::optional<std::string> extract_abstract_text(std::string_view xml)
+{
+    std::vector<std::string> parts;
+    std::size_t pos = 0;
+
+    while (true) {
+        const auto open = xml.find("<AbstractText", pos);
+        if (open == std::string_view::npos) {
+            break;
+        }
+        const auto open_end = xml.find('>', open);
+        if (open_end == std::string_view::npos) {
+            break;
+        }
+        const auto close = xml.find("</AbstractText>", open_end + 1);
+        if (close == std::string_view::npos) {
+            break;
+        }
+
+        const auto open_tag = xml.substr(open, open_end - open + 1);
+        auto text = strip_xml_tags(xml.substr(open_end + 1, close - open_end - 1));
+        if (!text.empty()) {
+            if (const auto label = extract_attribute(open_tag, "Label"); label && !label->empty()) {
+                text = *label + ": " + text;
+            }
+            parts.push_back(std::move(text));
+        }
+        pos = close + std::string_view{"</AbstractText>"}.size();
+    }
+
+    if (parts.empty()) {
+        return std::nullopt;
+    }
+
+    std::ostringstream output;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i > 0) {
+            output << "\n\n";
+        }
+        output << parts[i];
+    }
+    return output.str();
+}
+
 } // namespace
 
 EutilsClient::EutilsClient(ClientConfig config)
@@ -113,10 +263,11 @@ SummaryItem
 EutilsClient::fetch(const std::string& pmid)
 {
     const auto items = extract_summary_items(esummary({pmid}));
-    if (items.empty()) {
-        return make_minimal_item(pmid);
+    auto item = items.empty() ? make_minimal_item(pmid) : items.front();
+    if (const auto abstract = efetch_abstract(item.pmid)) {
+        item.abstract_text = abstract;
     }
-    return items.front();
+    return item;
 }
 
 std::vector<std::string>
@@ -194,6 +345,28 @@ EutilsClient::esummary(const std::vector<std::string>& pmids) const
     };
 
     return parse_json(HttpClient{}.get(url, headers));
+}
+
+std::optional<std::string>
+EutilsClient::efetch_abstract(const std::string& pmid) const
+{
+    std::vector<std::pair<std::string, std::string>> params;
+    params.emplace_back("db", "pubmed");
+    params.emplace_back("id", pmid);
+    params.emplace_back("retmode", "xml");
+    params.emplace_back("tool", config_.tool_name);
+    params.emplace_back("email", config_.email_address);
+    if (!config_.api_key.empty()) {
+        params.emplace_back("api_key", config_.api_key);
+    }
+
+    const auto url = build_url("/efetch.fcgi", params);
+    const std::vector<std::pair<std::string, std::string>> headers{
+        {"User-Agent", config_.tool_name + '/' + config_.email_address},
+        {"Accept", "application/xml"},
+    };
+
+    return extract_abstract_text(HttpClient{}.get(url, headers));
 }
 
 std::string
