@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout pmzf
+        uses: actions/checkout@v4
+
+      - name: Checkout libspagyrist
+        uses: actions/checkout@v4
+        with:
+          repository: recelsus/libspagyrist
+          path: libspagyrist
+
+      - name: Install dependencies on Ubuntu
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libcurl4-openssl-dev
+
+      - name: Install dependencies on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake curl
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPMZF_SPAGYRIST_PROVIDER=source \
+            -DPMZF_SPAGYRIST_SOURCE_DIR="${GITHUB_WORKSPACE}/libspagyrist"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Install staging
+        run: cmake --install build --prefix "${RUNNER_TEMP}/pmzf-install"
+
+      - name: Smoke test
+        run: |
+          "${RUNNER_TEMP}/pmzf-install/bin/pmzf" --help
+          "${RUNNER_TEMP}/pmzf-install/bin/pmzf" --version
