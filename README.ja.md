@@ -70,7 +70,7 @@ PubMed 検索と E-utilities access に関わるオプションです。
 
 ## License
 
-License information has not been added yet.
+pmzf is licensed under the MIT License. See `LICENSE` for details.
 
 Third-party dependency licenses and source information are listed in
 `THIRD_PARTY_NOTICES.md`.

@@ -121,6 +121,7 @@ install(
 
 install(
   FILES
+    LICENSE
     README.md
     README.ja.md
     THIRD_PARTY_NOTICES.md
